@@ -30,14 +30,21 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'No hay dispositivos suscritos.' });
     }
 
-    // 3. Obtener todas las tareas pendientes o atrasadas
+    // 3. Obtener perfiles para relacionar nombres
+    const { data: profiles } = await supabase.from('profiles').select('*');
+    const profilesMap = (profiles || []).reduce((acc, p) => {
+      acc[p.id] = p.name;
+      return acc;
+    }, {});
+
+    // 4. Obtener todas las tareas pendientes de hoy o atrasadas
     const { data: tasks, error: tasksError } = await supabase
       .from('tasks')
       .select('*')
       .lte('next_due_date', todayStr);
     if (tasksError) throw tasksError;
 
-    // 4. Si es la tarde (4pm), buscar en el historial si terminaron algo hoy
+    // 5. Verificar historial si es tarde
     let todaysLogs = [];
     if (type === 'afternoon') {
       const startOfDayISO = new Date(`${todayStr}T00:00:00-07:00`).toISOString();
@@ -48,39 +55,39 @@ export default async function handler(req, res) {
       todaysLogs = logs || [];
     }
 
-    // 5. Enviar notificaciones
-    const notifications = subscriptions.map((sub) => {
-      const userTasks = tasks.filter((t) => t.assigned_to === sub.user_id);
-      const count = userTasks.length;
+    const count = tasks ? tasks.length : 0;
+    let title = '';
+    let body = '';
 
-      let title = '';
-      let body = '';
+    // Mapear lista de tareas con el responsable (Ej: "Barrer cochera (Aida), Limpiar abanicos (Geovanny)")
+    const taskSummary = (tasks || []).map((t) => {
+      const respName = profilesMap[t.assigned_to] || 'Sin asignar';
+      return `${t.title} (${respName})`;
+    }).join(', ');
 
-      if (type === 'morning') {
-        if (count > 0) {
-          const taskList = userTasks.map((t) => t.title).join(', ');
-          title = '¡Buenos días! ☀️';
-          body = `No se te olviden tus tareas para hoy: ${taskList}.`;
-        }
-      } 
-      else if (type === 'afternoon') {
-        if (count > 0) {
-          const taskList = userTasks.map((t) => t.title).join(', ');
-          title = '¡Recordatorio de la tarde! ⏰';
-          body = `Aún tienes pendientes por terminar: ${taskList}.`;
-        } else {
-          // Si no tiene pendientes, verificamos si hizo algo hoy para felicitarlo
-          const userCompletedToday = todaysLogs.filter(l => l.completed_by === sub.user_id);
-          if (userCompletedToday.length > 0) {
-            title = '¡Misión Cumplida! 🎉';
-            body = 'Gracias por hacer todas tus tareas del hogar hoy. ¡A disfrutar la tarde!';
-          }
-        }
+    if (type === 'morning') {
+      if (count > 0) {
+        title = '¡Buenos días! ☀️';
+        body = `Tareas para hoy en casa: ${taskSummary}.`;
       }
+    } 
+    else if (type === 'afternoon') {
+      if (count > 0) {
+        title = '¡Recordatorio de la tarde! ⏰';
+        body = `Aún quedan ${count} tarea(s) pendientes: ${taskSummary}.`;
+      } else if (todaysLogs.length > 0) {
+        title = '¡Misión Cumplida! 🎉';
+        body = 'Se han completado las tareas del hogar hoy. ¡A disfrutar la tarde!';
+      }
+    }
 
-      // Si no hay mensaje, saltamos a este usuario
-      if (!body) return Promise.resolve();
+    // Si no hay mensaje que enviar, finaliza
+    if (!body) {
+      return res.status(200).json({ success: true, message: 'No hay tareas pendientes para notificar.' });
+    }
 
+    // 6. Enviar a TODOS los dispositivos suscritos sin filtrar por user_id
+    const notifications = subscriptions.map((sub) => {
       const pushSubscription = {
         endpoint: sub.endpoint,
         keys: {
@@ -104,7 +111,7 @@ export default async function handler(req, res) {
 
     await Promise.all(notifications);
 
-    return res.status(200).json({ success: true, message: `Cron ${type} ejecutado correctamente.` });
+    return res.status(200).json({ success: true, message: `Cron ${type} ejecutado a todos los dispositivos.` });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: error.message });
