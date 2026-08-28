@@ -37,13 +37,18 @@ export default async function handler(req, res) {
       return acc;
     }, {});
 
-    // 4. Obtener todas las tareas y filtrar en JS idéntico a la App
+    // 4. Obtener todas las tareas de la base de datos
     const { data: allTasks, error: tasksError } = await supabase.from('tasks').select('*');
     if (tasksError) throw tasksError;
 
-    const tasks = (allTasks || []).filter(t => t.next_due_date <= todayStr);
+    // 5. Normalizar la fecha recortando a 10 caracteres (YYYY-MM-DD)
+    const tasks = (allTasks || []).filter((t) => {
+      if (!t.next_due_date) return false;
+      const cleanTaskDate = String(t.next_due_date).substring(0, 10);
+      return cleanTaskDate <= todayStr;
+    });
 
-    // 5. Historial de completadas para la tarde
+    // 6. Historial de tareas completadas para el turno de la tarde
     let todaysLogs = [];
     if (type === 'afternoon') {
       const startOfDayISO = new Date(`${todayStr}T00:00:00-07:00`).toISOString();
@@ -82,11 +87,20 @@ export default async function handler(req, res) {
     if (!body) {
       return res.status(200).json({ 
         success: true, 
-        message: `No hay tareas pendientes para notificar. (Fecha: ${todayStr})` 
+        message: 'No hay tareas pendientes para notificar.',
+        debug: {
+          todayStr,
+          totalTasksInDB: (allTasks || []).length,
+          allTasksInDB: (allTasks || []).map(t => ({
+            title: t.title,
+            rawDate: t.next_due_date,
+            cleanDate: String(t.next_due_date).substring(0, 10)
+          }))
+        }
       });
     }
 
-    // 6. Enviar notificación a todos los dispositivos
+    // 7. Enviar notificación a todos los dispositivos
     const notifications = subscriptions.map((sub) => {
       const pushSubscription = {
         endpoint: sub.endpoint,
