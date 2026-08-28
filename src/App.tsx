@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import type { Profile, Task } from './types/database';
 
 const PUBLIC_VAPID_KEY = import.meta.env.VITE_PUBLIC_VAPID_KEY;
+const ADMIN_EMAIL = 'carlosgermanm14@gmail.com';
 
 const getTodayFormatted = () => {
   const today = new Date();
@@ -12,6 +13,22 @@ const getTodayFormatted = () => {
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+};
+
+const getDaysRemaining = (targetDateStr: string) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [yyyy, mm, dd] = targetDateStr.split('-').map(Number);
+  const targetDate = new Date(yyyy, mm - 1, dd);
+  targetDate.setHours(0, 0, 0, 0);
+
+  const diffTime = targetDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return 'Hoy';
+  if (diffDays === 1) return 'Falta 1 día';
+  return `Faltan ${diffDays} días`;
 };
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -25,10 +42,8 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-// TIPO DE DATO PARA EL TOAST
 type ToastData = { message: string; type: 'success' | 'error' } | null;
 
-// --- COMPONENTE TOAST (Ahorá sí, declarado afuera de la app principal) ---
 const ToastNotification = ({ toast }: { toast: ToastData }) => {
   if (!toast) return null;
   return (
@@ -59,10 +74,10 @@ export default function App() {
   const [assignedTo, setAssignedTo] = useState('');
   const [intervalDays, setIntervalDays] = useState(7);
 
-  // ESTADO PARA NOTIFICACIONES TOAST (In-App)
   const [toast, setToast] = useState<ToastData>(null);
 
   const todayStr = getTodayFormatted();
+  const isAdmin = session?.user?.email === ADMIN_EMAIL;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -272,10 +287,49 @@ export default function App() {
     if (!error) await refreshData();
   };
 
-  const getProfileName = (profileId?: string) => {
-    if (!profileId) return 'Sin asignar';
+  // VALIDACIÓN DE PERMISO PARA ELIMINAR
+  const handleDeleteTask = async (taskId: string) => {
+    if (!isAdmin) {
+      showToast('Solo el administrador puede borrar tareas', 'error');
+      return;
+    }
+
+    if (!window.confirm('¿Seguro que deseas eliminar esta tarea?')) return;
+
+    const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+
+    if (!error) {
+      await refreshData();
+      showToast('Tarea eliminada', 'success');
+    } else {
+      showToast('Error al eliminar la tarea', 'error');
+    }
+  };
+
+  const RenderBadge = ({ profileId }: { profileId?: string }) => {
+    if (!profileId) {
+      return (
+        <span className="inline-flex items-center gap-1 bg-slate-800 text-slate-400 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700">
+          <User className="w-3 h-3" /> Sin asignar
+        </span>
+      );
+    }
+
     const profile = profiles.find((p) => p.id === profileId);
-    return profile ? profile.name : 'Desconocido';
+    const name = profile ? profile.name : 'Desconocido';
+
+    const isAida = name.toLowerCase().includes('aida');
+    const isGeovanny = name.toLowerCase().includes('geovanny');
+
+    let badgeStyle = 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30';
+    if (isAida) badgeStyle = 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30';
+    if (isGeovanny) badgeStyle = 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+
+    return (
+      <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${badgeStyle}`}>
+        <User className="w-3 h-3 opacity-70" /> {name}
+      </span>
+    );
   };
 
   if (!session) {
@@ -386,23 +440,34 @@ export default function App() {
                   {todaysTasks.map((task) => (
                     <div key={task.id} className="bg-slate-900 border border-slate-700/80 p-4 rounded-2xl shadow-sm space-y-3 transition-all">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <div className="space-y-1.5">
                           <h3 className="font-semibold text-sm text-slate-100">{task.title}</h3>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            Responsable: <span className="text-slate-300 font-medium">{getProfileName(task.assigned_to)}</span>
-                          </p>
+                          <RenderBadge profileId={task.assigned_to} />
                         </div>
-                        <button
-                          onClick={() => handleCompleteTask(task)}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium px-4 py-1.5 rounded-lg transition-all active:scale-95 shrink-0"
-                        >
-                          Terminar
-                        </button>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {/* SOLO SE MUESTRA SI ES ADMIN */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                              title="Eliminar tarea"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleCompleteTask(task)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium px-4 py-1.5 rounded-lg transition-all active:scale-95 shrink-0"
+                          >
+                            Terminar
+                          </button>
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/60 text-[11px]">
                         <span className="text-slate-500">
-                          Frecuencia: <span className="text-indigo-400/80 font-medium">{task.interval_days} días</span>
+                          Cada <span className="text-indigo-400/80 font-medium">{task.interval_days} días</span>
                         </span>
                         <span className="text-slate-300 font-medium">
                           {task.next_due_date < todayStr ? 'Atrasada' : 'Hoy'}
@@ -421,27 +486,38 @@ export default function App() {
                   {upcomingTasks.map((task) => (
                     <div key={task.id} className="bg-slate-900/60 border border-slate-800/50 p-4 rounded-2xl shadow-sm space-y-3 transition-all opacity-80 hover:opacity-100">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                        <div className="space-y-1.5">
                           <h3 className="font-semibold text-sm text-slate-400">{task.title}</h3>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            Responsable: <span className="text-slate-400 font-medium">{getProfileName(task.assigned_to)}</span>
-                          </p>
+                          <RenderBadge profileId={task.assigned_to} />
                         </div>
-                        <button
-                          onClick={() => handleUndoTask(task)}
-                          title="Presiona para deshacer"
-                          className="bg-emerald-600/10 text-emerald-500 border border-emerald-500/20 text-xs font-semibold px-4 py-1.5 rounded-lg shrink-0 transition-all active:scale-95 cursor-pointer opacity-80 hover:opacity-100"
-                        >
-                          ✓ Hecho
-                        </button>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {/* SOLO SE MUESTRA SI ES ADMIN */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                              title="Eliminar tarea"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleUndoTask(task)}
+                            title="Presiona para deshacer"
+                            className="bg-emerald-600/10 text-emerald-500 border border-emerald-500/20 text-xs font-semibold px-4 py-1.5 rounded-lg shrink-0 transition-all active:scale-95 cursor-pointer opacity-80 hover:opacity-100"
+                          >
+                            ✓ Hecho
+                          </button>
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/60 text-[11px]">
                         <span className="text-slate-500">
-                          Frecuencia: <span className="text-indigo-400/60 font-medium">{task.interval_days} días</span>
+                          Cada <span className="text-indigo-400/60 font-medium">{task.interval_days} días</span>
                         </span>
-                        <span className="text-slate-500">
-                          Próxima: {task.next_due_date}
+                        <span className="text-slate-500 font-medium">
+                          {getDaysRemaining(task.next_due_date)}
                         </span>
                       </div>
                     </div>
