@@ -471,7 +471,7 @@ export default function App() {
     return (
       <div 
         className={`min-h-screen w-full flex flex-col items-center justify-start sm:justify-center font-sans select-none ${darkMode ? 'bg-slate-950 bg-repeat pb-8' : 'bg-[#cce8fb] bg-repeat pb-8'}`}
-        style={{ backgroundImage: "url('/fondo.webp')", opacity: darkMode ? 1 : 0.8 }}
+        style={{ backgroundImage: "url('/fondo_login.webp')", opacity: darkMode ? 1 : 0.8 }}
       >
         <ToastNotification toast={toast} />
         
@@ -548,7 +548,7 @@ export default function App() {
       
       <div 
         className="fixed inset-0 z-0 opacity-[0.04] pointer-events-none bg-slate-950 bg-repeat bg-center"
-        style={{ backgroundImage: "url('/fondo.webp')", opacity: darkMode ? 0.04 : 0.02 }}
+        style={{ backgroundImage: "url('/fondo_login.webp')", opacity: darkMode ? 0.04 : 0.02 }}
       ></div>
 
       <div className="relative z-10 p-4 max-w-md mx-auto pb-20">
