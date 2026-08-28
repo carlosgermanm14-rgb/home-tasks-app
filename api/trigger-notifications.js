@@ -1,12 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import webPush from 'web-push';
 
+// 1. CONEXIÓN CORREGIDA: Usamos el fallback a la ANON_KEY que ya existe en tu Vercel
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-// IMPORTANTE: Asegúrate de tener esta clave Service Role en las variables de Vercel
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ADMIN_EMAIL = 'carlosgermanm14@gmail.com'; // Tu correo de admin
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY; 
+const ADMIN_EMAIL = 'carlosgermanm14@gmail.com';
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 webPush.setVapidDetails(
   'mailto:carlosgermanm14@gmail.com',
@@ -15,28 +15,31 @@ webPush.setVapidDetails(
 );
 
 export default async function handler(req, res) {
-  // 1. SEGURIDAD: Solo aceptar métodos POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método no permitido' });
   }
 
-  // 2. SEGURIDAD: Verificar autenticación del administrador
   const authHeader = req.headers.authorization;
   if (!authHeader) {
-    return res.status(401).json({ error: 'No autenticado' });
+    return res.status(401).json({ error: 'No se detectó la sesión activa.' });
   }
 
   const token = authHeader.split(' ')[1];
   
-  // Verificar el token JWT con Supabase Auth
+  // 2. VALIDACIÓN DE USUARIO CORREGIDA Y MÁS DETALLADA
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
-  if (authError || !user || user.email !== ADMIN_EMAIL) {
-    return res.status(403).json({ error: 'No autorizado. Se requieren permisos de administrador.' });
+  if (authError) {
+    return res.status(401).json({ error: `Sesión inválida: ${authError.message}` });
+  }
+
+  // Comparamos los correos ignorando mayúsculas/minúsculas por seguridad
+  if (!user || user.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+    return res.status(403).json({ error: `El usuario ${user?.email} no es administrador.` });
   }
 
   try {
-    // 3. LÓGICA DINÁMICA DE TIEMPO (Culiacán)
+    // LÓGICA DINÁMICA DE TIEMPO (Culiacán)
     const sinaloaTimeZone = "America/Mazatlan";
     const sinaloaDate = new Date(new Date().toLocaleString("en-US", { timeZone: sinaloaTimeZone }));
     
@@ -52,7 +55,6 @@ export default async function handler(req, res) {
     else if (hour < 19) greeting = '¡Buenas tardes';
     else greeting = '¡Buenas noches';
 
-    // 4. LÓGICA DINÁMICA DE DATOS
     // Obtener dispositivos suscritos
     const { data: subscriptions } = await supabase.from('push_subscriptions').select('*');
     
@@ -75,12 +77,12 @@ export default async function handler(req, res) {
       return cleanTaskDate <= todayStr;
     });
 
-    // 5. ENVÍO SECUENCIAL OPTIMIZADO CON MENSAJES DINÁMICOS
+    // ENVÍO SECUENCIAL OPTIMIZADO CON MENSAJES DINÁMICOS
     let successfulSends = 0;
     
     for (const sub of subscriptions) {
       const userProfile = profileByUserId[sub.user_id];
-      if (!userProfile) continue; // Saltamos si el dispositivo no está vinculado a un perfil
+      if (!userProfile) continue;
 
       const userTasks = todaysTasks.filter((t) => t.assigned_to === userProfile.id);
       const count = userTasks.length;
@@ -90,15 +92,12 @@ export default async function handler(req, res) {
       let body = '';
 
       if (count > 0) {
-        // MENSAJE DINÁMICO 1: Tareas pendientes
         const taskListStr = userTasks.map((t) => t.title).join(', ');
         body = `Te quedan estas tareas: ${taskListStr}.`;
       } else {
-        // MENSAJE DINÁMICO 2: Todo completado
         body = 'Felicidades ya terminaste, te amo. 🎉';
       }
 
-      // Validar que tengamos contenido
       if (!body) continue;
 
       const pushSubscription = {
@@ -106,18 +105,13 @@ export default async function handler(req, res) {
         keys: { p256dh: sub.p256dh, auth: sub.auth },
       };
 
-      const payload = JSON.stringify({
-        title,
-        body,
-        url: '/', // Abrir la app al hacer clic
-      });
+      const payload = JSON.stringify({ title, body, url: '/' });
 
       try {
         await webPush.sendNotification(pushSubscription, payload);
         successfulSends++;
       } catch (err) {
         console.error(`[API-TRIGGER]: Error enviando a ${userName}`, err.statusCode);
-        // Si la suscripción expiró (410) o no se encontró (404), la eliminamos
         if (err.statusCode === 410 || err.statusCode === 404) {
           await supabase.from('push_subscriptions').delete().eq('id', sub.id);
         }
@@ -126,7 +120,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       success: true, 
-      message: `Disparo manual exitoso. Notificaciones personalizadas enviadas secuencialmente a ${successfulSends} de ${subscriptions.length} dispositivo(s).`
+      message: `¡Listo! Se enviaron las notificaciones a ${successfulSends} teléfono(s).`
     });
 
   } catch (error) {
