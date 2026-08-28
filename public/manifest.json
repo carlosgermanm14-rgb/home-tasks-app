@@ -7,7 +7,7 @@
   "theme_color": "#020617",
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/icon_cuadrado.png",
       "sizes": "512x512",
       "type": "image/png"
     }
