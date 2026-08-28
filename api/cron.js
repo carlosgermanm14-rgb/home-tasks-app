@@ -12,6 +12,10 @@ webPush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
+// Límite de tiempo para la ejecución en Vercel Hobby (10s)
+const FUNCTION_START_TIME = Date.now();
+const FUNCTION_TIMEOUT_MS = 9500; // 9.5 segundos para tener margen
+
 export default async function handler(req, res) {
   try {
     const rawType = String(req.query.type || 'morning').trim().toLowerCase();
@@ -33,14 +37,12 @@ export default async function handler(req, res) {
 
     // 3. Obtener perfiles vinculados con user_id
     const { data: profiles } = await supabase.from('profiles').select('*');
-    
-    // Crear mapas para buscar rápido por user_id y por profile.id
     const profileByUserId = (profiles || []).reduce((acc, p) => {
       if (p.user_id) acc[p.user_id] = p;
       return acc;
     }, {});
 
-    // 4. Obtener tareas de hoy o atrasadas
+    // 4. Obtener tareas de hoy o atrasadas y filtrar en JS idéntico a la App
     const { data: allTasks, error: tasksError } = await supabase.from('tasks').select('*');
     if (tasksError) throw tasksError;
 
@@ -61,77 +63,104 @@ export default async function handler(req, res) {
       todaysLogs = logs || [];
     }
 
-    // 6. Enviar notificación personalizada A CADA USUARIO
-    const sendResults = await Promise.allSettled(
-      subscriptions.map(async (sub) => {
-        // Encontrar qué perfil le pertenece a este teléfono
-        const userProfile = profileByUserId[sub.user_id];
-        
-        // Filtrar solo las tareas asignadas a este perfil
-        const userTasks = userProfile 
-          ? todaysTasks.filter((t) => t.assigned_to === userProfile.id)
-          : [];
+    const debugInfo = [];
+    let successfulSends = 0;
 
-        const count = userTasks.length;
-        let title = '';
-        let body = '';
+    // 6. SOLUCIÓN AL TIMEOUT: Enviar las notificaciones secuencialmente (una por una)
+    // No usamos Promise.all() ni Promise.allSettled() en bucles serverless que duran más de 10s
+    for (let i = 0; i < subscriptions.length; i++) {
+      const sub = subscriptions[i];
 
-        const taskListStr = userTasks.map((t) => t.title).join(', ');
-        const userName = userProfile ? userProfile.name : '';
+      // Verificación de temporizador: Si ya pasaron 9.5s, paramos el bucle para evitar el timeout de Vercel
+      if (Date.now() - FUNCTION_START_TIME > FUNCTION_TIMEOUT_MS) {
+        console.warn(`[API-CRON]: Se ha alcanzado el límite de tiempo de Vercel (10s) en el índice ${i}. ${successfulSends}/${subscriptions.length} enviados.`);
+        debugInfo.push({ endpoint: sub.endpoint, status: 'error', reason: 'Function timed out before send' });
+        break; // Rompemos el bucle secuencial y retornamos lo que se haya logrado enviar.
+      }
 
-        if (type === 'morning') {
-          if (count > 0) {
-            title = `¡Buenos días${userName ? ' ' + userName : ''}! ☀️`;
-            body = `Tus tareas para hoy: ${taskListStr}.`;
-          }
+      const userProfile = profileByUserId[sub.user_id];
+      const userTasks = userProfile 
+        ? todaysTasks.filter((t) => t.assigned_to === userProfile.id)
+        : [];
+
+      const count = userTasks.length;
+      let title = '';
+      let body = '';
+
+      const taskListStr = userTasks.map((t) => t.title).join(', ');
+      const userName = userProfile ? userProfile.name : '';
+
+      if (type === 'morning') {
+        if (count > 0) {
+          title = `¡Buenos días${userName ? ' ' + userName : ''}! ☀️`;
+          body = `Tus tareas para hoy: ${taskListStr}.`;
+        }
+      } else {
+        if (count > 0) {
+          title = `¡Recordatorio${userName ? ' ' + userName : ''}! ⏰`;
+          body = `Aún tienes ${count} pendiente(s): ${taskListStr}.`;
         } else {
-          if (count > 0) {
-            title = `¡Recordatorio${userName ? ' ' + userName : ''}! ⏰`;
-            body = `Aún tienes ${count} pendiente(s): ${taskListStr}.`;
-          } else {
-            // Verificar si este usuario en específico hizo tareas hoy
-            const userCompletedToday = todaysLogs.filter(l => l.completed_by === userProfile?.id);
-            if (userCompletedToday.length > 0) {
-              title = '¡Misión Cumplida! 🎉';
-              body = 'Gracias por completar tus tareas del hogar hoy. ¡A descansar!';
-            }
+          const userCompletedToday = todaysLogs.filter(l => l.completed_by === userProfile?.id);
+          if (userCompletedToday.length > 0) {
+            title = '¡Misión Cumplida! 🎉';
+            body = 'Gracias por completar tus tareas del hogar hoy. ¡A descansar!';
           }
         }
+      }
 
-        // Si este usuario no tiene tareas ni mensaje, no le enviamos nada
-        if (!body) return Promise.resolve();
+      // Si no hay mensaje, saltamos este dispositivo
+      if (!body) {
+        debugInfo.push({ endpoint: sub.endpoint, status: 'skipped', reason: 'No tasks' });
+        continue;
+      }
 
-        const pushSubscription = {
-          endpoint: sub.endpoint,
-          keys: {
-            p256dh: sub.p256dh,
-            auth: sub.auth,
-          },
-        };
+      const pushSubscription = {
+        endpoint: sub.endpoint,
+        keys: {
+          p256dh: sub.p256dh,
+          auth: sub.auth,
+        },
+      };
 
-        const payload = JSON.stringify({
-          title: title,
-          body: body,
-          url: '/',
-        });
+      const payload = JSON.stringify({
+        title: title,
+        body: body,
+        url: '/',
+      });
 
-        return webPush.sendNotification(pushSubscription, payload).catch((err) => {
-          if (err.statusCode === 410 || err.statusCode === 404) {
-            supabase.from('push_subscriptions').delete().eq('id', sub.id);
-          }
-          throw err;
-        });
-      })
-    );
+      // Enviar SECUENCIALMENTE y AWAITar cada uno
+      try {
+        await webPush.sendNotification(pushSubscription, payload);
+        successfulSends++;
+        debugInfo.push({ endpoint: sub.endpoint, status: 'fulfilled' });
+      } catch (err) {
+        // Limpieza de endpoints obsoletos (Código 410 Gone / 404 Not Found)
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await supabase.from('push_subscriptions').delete().eq('id', sub.id);
+          debugInfo.push({ endpoint: sub.endpoint, status: 'unsubscribed', reason: 'Endpoint obsoleted' });
+        } else {
+          console.error(`[API-CRON]: Error enviando a ${sub.endpoint}`, err);
+          debugInfo.push({ endpoint: sub.endpoint, status: 'error', reason: err.message });
+        }
+        // No arrojamos el error, simplemente lo registramos y pasamos al siguiente endpoint
+      }
+    }
 
-    const successfulSends = sendResults.filter(r => r.status === 'fulfilled').length;
+    const durationMs = Date.now() - FUNCTION_START_TIME;
 
     return res.status(200).json({ 
       success: true, 
-      message: `Notificaciones personalizadas enviadas a ${successfulSends} dispositivo(s).`
+      message: `Notificaciones personalizadas enviadas secuencialmente a ${successfulSends} de ${subscriptions.length} dispositivo(s).`,
+      debug: {
+        todayStr,
+        typeDetected: type,
+        totalSubscriptions: subscriptions.length,
+        durationMs,
+        timings: debugInfo
+      }
     });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: error.message });
+    console.error(`[API-CRON-FATAL]:`, error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 }

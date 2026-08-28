@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Lock, Check, RotateCcw, Pencil } from 'lucide-react';
+import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Lock, Check, RotateCcw, Pencil, Moon, Sun } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import type { Profile, Task } from './types/database';
 
@@ -27,7 +27,7 @@ const getDaysRemaining = (targetDateStr: string) => {
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
   if (diffDays <= 0) return 'Hoy';
-  if (diffDays === 1) return 'Falta 1 día';
+  if (diffDays === 1) return 'Mañana';
   return `Faltan ${diffDays} días`;
 };
 
@@ -88,6 +88,7 @@ export default function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [taskToDeleteId, setTaskToDeleteId] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   const todayStr = getTodayFormatted();
 
@@ -271,10 +272,11 @@ export default function App() {
       }
 
       setPushEnabled(false);
-      showToast('Notificaciones desactivadas', 'success');
+      // Solo mostramos toast si no estamos cerrando sesión
+      if (session) showToast('Notificaciones desactivadas', 'success');
     } catch (error) {
       console.error(error);
-      showToast('Error al desactivar notificaciones', 'error');
+      if (session) showToast('Error al desactivar notificaciones', 'error');
     }
   };
 
@@ -286,7 +288,39 @@ export default function App() {
     setAuthLoading(false);
   };
 
+  // SOLUCIÓN AL "HOLA AIDA" EN CUENTA GEOVANNY
   const handleSignOut = async () => {
+    // 1. UNSUBSCRIBE completely (browser & DB) IF signed in and notifications active
+    // Esto limpia la base de datos para que el endpoint de este teléfono ya no esté asociado a Aida.
+    if (pushEnabled) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+
+        if (subscription) {
+          // Desactivar en el navegador
+          await subscription.unsubscribe();
+
+          const subscriptionJSON = subscription.toJSON();
+          if (session?.user?.id && subscriptionJSON.endpoint) {
+            // Eliminar de la base de datos
+            await supabase
+              .from('push_subscriptions')
+              .delete()
+              .eq('endpoint', subscriptionJSON.endpoint)
+              .eq('user_id', session.user.id);
+          }
+        }
+      } catch (err) {
+        console.error("Error cleaning up push subscriptions during sign out", err);
+      }
+    }
+
+    // 2. Clear frontend state for notifications
+    setPushEnabled(false);
+
+    // 3. Clear auth state and sign out
+    setSession(null); // Force local clear
     await supabase.auth.signOut();
   };
 
@@ -433,54 +467,74 @@ export default function App() {
     );
   };
 
-  // VISTA LOGIN
   if (!session) {
     return (
       <div 
-        className="min-h-screen w-full flex flex-col justify-end items-center p-4 font-sans select-none bg-[#bce1fa] bg-top bg-cover bg-no-repeat relative"
-        style={{ backgroundImage: "url('/fondo_login.webp')" }}
+        className={`min-h-screen w-full flex flex-col items-center justify-start sm:justify-center font-sans select-none ${darkMode ? 'bg-slate-950 bg-repeat pb-8' : 'bg-[#cce8fb] bg-repeat pb-8'}`}
+        style={{ backgroundImage: "url('/fondo.webp')", opacity: darkMode ? 1 : 0.8 }}
       >
         <ToastNotification toast={toast} />
-
-        <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-sky-100/80 mb-4 sm:mb-8 relative z-10">
+        
+        <div className="w-full max-w-sm flex flex-col items-center relative">
           
-          <h2 className="text-center font-bold text-slate-800 text-sm mb-5">
-            ¡Hola! Inicia sesión para continuar.
-          </h2>
-
-          <form onSubmit={handleAuth} className="space-y-3.5">
-            <div className="relative">
-              <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-sky-400" />
-              <input
-                type="email"
-                required
-                placeholder="Usuario o Correo"
-                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-
-            <div className="relative">
-              <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-sky-400" />
-              <input
-                type="password"
-                required
-                placeholder="Contraseña"
-                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs tracking-wider uppercase py-4 rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 mt-1"
+          <div className="w-full px-2 pt-2 flex justify-center z-0 relative">
+            <img 
+              src="/fondo_login.jpg" 
+              alt="Chore Chums" 
+              className="w-full h-auto object-contain max-h-[360px] rounded-t-3xl"
+            />
+             <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="absolute top-6 right-6 p-2 rounded-full backdrop-blur-sm bg-slate-900/50 text-slate-300 hover:bg-slate-800/80 transition-colors z-10"
+              title={darkMode ? "Activar modo claro" : "Activar modo oscuro"}
             >
-              {authLoading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
+              {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
             </button>
-          </form>
+          </div>
+
+          <div className="w-full px-4 -mt-20 z-10 relative">
+            <div className={`rounded-[32px] p-6 shadow-2xl border ${darkMode ? 'bg-slate-900/90 border-slate-700/50 backdrop-blur-md' : 'bg-white border-sky-100'}`}>
+              
+              <h2 className={`text-center font-bold text-sm mb-5 ${darkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+                ¡Hola! Inicia sesión para continuar.
+              </h2>
+
+              <form onSubmit={handleAuth} className="space-y-3.5">
+                <div className="relative">
+                  <User className={`w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-sky-400'}`} />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Usuario o Correo"
+                    className={`w-full border rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium focus:outline-none focus:ring-2 transition-all ${darkMode ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-600 focus:ring-slate-600' : 'bg-[#f0f7fd] border-sky-100 text-slate-700 placeholder:text-slate-400 focus:ring-sky-300'}`}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="relative">
+                  <Lock className={`w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-sky-400'}`} />
+                  <input
+                    type="password"
+                    required
+                    placeholder="Contraseña"
+                    className={`w-full border rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium focus:outline-none focus:ring-2 transition-all ${darkMode ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-600 focus:ring-slate-600' : 'bg-[#f0f7fd] border-sky-100 text-slate-700 placeholder:text-slate-400 focus:ring-sky-300'}`}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className={`w-full font-extrabold text-xs tracking-widest uppercase py-4 rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 mt-1 ${darkMode ? 'bg-slate-100 hover:bg-slate-200 text-slate-950 shadow-slate-900/50' : 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-950/20'}`}
+                >
+                  {authLoading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
+                </button>
+              </form>
+            </div>
+          </div>
+
         </div>
       </div>
     );
@@ -490,29 +544,35 @@ export default function App() {
   const upcomingTasks = tasks.filter(task => task.next_due_date > todayStr);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 relative font-sans antialiased">
+    <div className={`min-h-screen relative font-sans antialiased ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
       
-      {/* Fondo en Modo Oscuro con fondo_login.png */}
       <div 
-        className="fixed inset-0 z-0 opacity-10 pointer-events-none bg-cover bg-center"
-        style={{ backgroundImage: "url('/fondo_login.webp')" }}
+        className="fixed inset-0 z-0 opacity-[0.04] pointer-events-none bg-slate-950 bg-repeat bg-center"
+        style={{ backgroundImage: "url('/fondo.webp')", opacity: darkMode ? 0.04 : 0.02 }}
       ></div>
 
-      <div className="relative z-10 p-4 max-w-md mx-auto">
+      <div className="relative z-10 p-4 max-w-md mx-auto pb-20">
         <ToastNotification toast={toast} />
 
-        <header className="mb-6 pt-2 flex justify-between items-start">
+        <header className="mb-6 pt-2 flex justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white">Tareas del Hogar</h1>
-            <p className="text-xs font-medium text-slate-400 mt-0.5">Gestión de pendientes</p>
+            <h1 className={`text-2xl font-extrabold tracking-tight ${darkMode ? 'text-white' : 'text-slate-950'}`}>Tareas del Hogar</h1>
+            <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-600'} mt-0.5`}>Gestión de pendientes</p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5 shrink-0">
+             <button
+              onClick={() => setDarkMode(!darkMode)}
+              className={`p-2 rounded-full backdrop-blur-sm transition-colors ${darkMode ? 'bg-slate-800/80 text-amber-400 hover:bg-slate-700/80' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+              title={darkMode ? "Activar modo claro" : "Activar modo oscuro"}
+            >
+              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
             <button
               onClick={pushEnabled ? unsubscribeFromPush : subscribeToPush}
               className={`p-2 rounded-full transition-colors ${
                 pushEnabled
-                  ? 'text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20'
-                  : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-900'
+                  ? (darkMode ? 'text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20' : 'text-emerald-600 bg-emerald-100 hover:bg-emerald-200')
+                  : (darkMode ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-900' : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-200')
               }`}
               title={pushEnabled ? 'Desactivar notificaciones' : 'Activar notificaciones'}
             >
@@ -520,7 +580,7 @@ export default function App() {
             </button>
             <button 
               onClick={handleSignOut}
-              className="text-slate-400 hover:text-rose-400 p-2 rounded-full hover:bg-slate-900 transition-colors"
+              className={`p-2 rounded-full transition-colors ${darkMode ? 'text-slate-400 hover:text-rose-400 hover:bg-slate-900' : 'text-slate-500 hover:text-rose-600 hover:bg-slate-200'}`}
               title="Cerrar sesión"
             >
               <LogOut className="w-5 h-5" />
@@ -528,38 +588,37 @@ export default function App() {
           </div>
         </header>
 
-        {/* Lista de Tareas */}
-        <section className="pb-24">
+        <section className="pb-16">
           {loading ? (
-            <div className="p-4 bg-slate-900/80 border border-slate-800/80 rounded-2xl text-center">
-              <p className="text-xs text-slate-500 animate-pulse">Cargando tareas...</p>
+            <div className={`p-4 border rounded-2xl text-center ${darkMode ? 'bg-slate-900/80 border-slate-800/80' : 'bg-white border-slate-200'}`}>
+              <p className={`text-xs animate-pulse ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>Cargando tareas...</p>
             </div>
           ) : tasks.length === 0 ? (
-            <div className="p-10 bg-slate-900/60 border border-slate-800/60 rounded-2xl text-center flex flex-col items-center justify-center">
-              <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-3">
-                <Plus className="w-6 h-6 text-slate-500" />
+            <div className={`p-10 border rounded-2xl text-center flex flex-col items-center justify-center ${darkMode ? 'bg-slate-900/60 border-slate-800/60' : 'bg-white border-slate-200'}`}>
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-3 ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                <Plus className={`w-6 h-6 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} />
               </div>
-              <p className="text-sm font-medium text-slate-300">Nada por aquí</p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className={`text-sm font-medium ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Nada por aquí</p>
+              <p className={`text-xs mt-1 ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
                 {isAdmin ? 'Presiona el botón + para agregar tareas' : 'Cuando se agreguen tareas las verás aquí'}
               </p>
             </div>
           ) : (
             <>
               <div className="mb-8">
-                <h2 className="text-xs font-bold text-slate-300 tracking-wider uppercase mb-3 pl-1">Para hoy</h2>
+                <h2 className={`text-xs font-bold tracking-wider uppercase mb-3 pl-1 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Para hoy</h2>
                 
                 {todaysTasks.length === 0 ? (
-                  <div className="p-6 bg-slate-900/60 border border-slate-800/60 border-dashed rounded-2xl text-center">
-                    <p className="text-sm text-slate-400">¡Todo listo por hoy! 🎉</p>
+                  <div className={`p-6 border border-dashed rounded-2xl text-center ${darkMode ? 'bg-slate-900/60 border-slate-800/60' : 'bg-white/80 border-slate-200'}`}>
+                    <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>¡Todo listo por hoy! 🎉</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {todaysTasks.map((task) => (
-                      <div key={task.id} className="bg-slate-900/90 border border-slate-700/80 p-4 rounded-2xl shadow-sm space-y-3 transition-all backdrop-blur-sm">
+                      <div key={task.id} className={`p-4 rounded-2xl shadow-sm space-y-3 transition-all backdrop-blur-sm border ${darkMode ? 'bg-slate-900/90 border-slate-700/80 shadow-slate-950/20' : 'bg-white border-slate-200 shadow-slate-100'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1.5">
-                            <h3 className="font-semibold text-sm text-slate-100">{task.title}</h3>
+                            <h3 className={`font-semibold text-sm ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{task.title}</h3>
                             <RenderBadge profileId={task.assigned_to} />
                           </div>
 
@@ -568,13 +627,13 @@ export default function App() {
                               <>
                                 <button
                                   onClick={() => handleOpenEditModal(task)}
-                                  className="text-slate-500 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                                  className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100'}`}
                                 >
                                   <Pencil className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => setTaskToDeleteId(task.id)}
-                                  className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                                  className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-rose-400 hover:bg-slate-800' : 'text-slate-400 hover:text-rose-600 hover:bg-slate-100'}`}
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -589,12 +648,12 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/60 text-[11px]">
-                          <span className="text-slate-500">
-                            Cada <span className="text-indigo-400/80 font-medium">{task.interval_days} días</span>
+                        <div className={`flex items-center justify-between pt-2.5 border-t text-[11px] ${darkMode ? 'border-slate-800/60' : 'border-slate-100'}`}>
+                          <span className={`${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                            Cada <span className={`${darkMode ? 'text-indigo-400/80 font-medium' : 'text-indigo-600 font-medium'}`}>{task.interval_days} días</span>
                           </span>
-                          <span className="text-slate-300 font-medium">
-                            {task.next_due_date < todayStr ? 'Atrasada' : 'Hoy'}
+                          <span className={`${darkMode ? 'text-slate-300 font-medium' : 'text-slate-700 font-medium'}`}>
+                            Hoy
                           </span>
                         </div>
                       </div>
@@ -605,13 +664,13 @@ export default function App() {
 
               {upcomingTasks.length > 0 && (
                 <div>
-                  <h2 className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-3 pl-1">Próximas</h2>
+                  <h2 className={`text-xs font-bold tracking-wider uppercase mb-3 pl-1 ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>Próximas</h2>
                   <div className="space-y-3">
                     {upcomingTasks.map((task) => (
-                      <div key={task.id} className="bg-slate-900/60 border border-slate-800/60 p-4 rounded-2xl shadow-sm space-y-3 transition-all opacity-80 hover:opacity-100 backdrop-blur-sm">
+                      <div key={task.id} className={`p-4 rounded-2xl shadow-sm space-y-3 transition-all backdrop-blur-sm border opacity-80 hover:opacity-100 ${darkMode ? 'bg-slate-900/60 border-slate-800/60 shadow-slate-950/20' : 'bg-white border-slate-200/80 shadow-slate-100'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1.5">
-                            <h3 className="font-semibold text-sm text-slate-400">{task.title}</h3>
+                            <h3 className={`font-semibold text-sm ${darkMode ? 'text-slate-400' : 'text-slate-800'}`}>{task.title}</h3>
                             <RenderBadge profileId={task.assigned_to} />
                           </div>
 
@@ -620,13 +679,13 @@ export default function App() {
                               <>
                                 <button
                                   onClick={() => handleOpenEditModal(task)}
-                                  className="text-slate-500 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+                                  className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800/60' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100/80'}`}
                                 >
                                   <Pencil className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => setTaskToDeleteId(task.id)}
-                                  className="text-slate-600 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+                                  className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-600 hover:text-rose-400 hover:bg-slate-800/60' : 'text-slate-400 hover:text-rose-600 hover:bg-slate-100/80'}`}
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -635,18 +694,18 @@ export default function App() {
                             <button
                               onClick={() => handleUndoTask(task)}
                               title="Mover a hoy manualmente"
-                              className="text-slate-500 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+                              className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800/60' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100/80'}`}
                             >
                               <RotateCcw className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/40 text-[11px]">
-                          <span className="text-slate-500">
-                            Cada <span className="text-indigo-400/60 font-medium">{task.interval_days} días</span>
+                        <div className={`flex items-center justify-between pt-2.5 border-t text-[11px] ${darkMode ? 'border-slate-800/40' : 'border-slate-100'}`}>
+                          <span className={`${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                            Cada <span className={`${darkMode ? 'text-indigo-400/60 font-medium' : 'text-indigo-600 font-medium'}`}>{task.interval_days} días</span>
                           </span>
-                          <span className="text-slate-500 font-medium">
+                          <span className={`${darkMode ? 'text-slate-500 font-medium' : 'text-slate-600 font-medium'}`}>
                             {getDaysRemaining(task.next_due_date)}
                           </span>
                         </div>
@@ -662,29 +721,27 @@ export default function App() {
         {isAdmin && (
           <button
             onClick={handleOpenCreateModal}
-            className="fixed bottom-8 right-1/2 translate-x-[200px] sm:translate-x-[180px] w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-all active:scale-90 z-40"
-            style={{ right: 'max(1.5rem, calc(50% - 200px + 1.5rem))', transform: 'none' }}
+            className={`fixed bottom-6 right-1/2 translate-x-[180px] sm:translate-x-[160px] w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-90 z-40 ${darkMode ? 'bg-slate-100 text-slate-950 hover:bg-white shadow-lg shadow-slate-900/50' : 'bg-slate-950 text-white hover:bg-slate-900 shadow-xl shadow-slate-950/20'}`}
           >
             <Plus className="w-7 h-7" />
           </button>
         )}
 
-        {/* MODALES */}
         {taskToDeleteId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 text-center relative z-50">
-              <div className="w-12 h-12 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-500/20">
+            <div className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 text-center relative z-50 border ${darkMode ? 'bg-slate-900 border-slate-700/50 backdrop-blur-md shadow-slate-950/30' : 'bg-white border-slate-100 shadow-slate-200'}`}>
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto border ${darkMode ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-rose-100 text-rose-600 border-rose-200'}`}>
                 <Trash2 className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">¿Eliminar esta tarea?</h3>
-                <p className="text-xs text-slate-400 mt-1">Esta acción no se puede deshacer y borrará el historial de la actividad.</p>
+                <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-slate-950'}`}>¿Eliminar esta tarea?</h3>
+                <p className={`text-xs mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Esta acción no se puede deshacer y borrará el historial de la actividad.</p>
               </div>
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setTaskToDeleteId(null)}
-                  className="w-1/2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl text-xs transition-all"
+                  className={`w-1/2 font-medium py-3 rounded-xl text-xs transition-all ${darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
                 >
                   Cancelar
                 </button>
@@ -702,28 +759,28 @@ export default function App() {
 
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <form onSubmit={handleSaveTask} className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 relative animate-in fade-in zoom-in-95 duration-200 z-50">
+            <form onSubmit={handleSaveTask} className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 relative animate-in fade-in zoom-in-95 duration-200 z-50 border ${darkMode ? 'bg-slate-900 border-slate-700/50 backdrop-blur-md shadow-slate-950/30' : 'bg-white border-slate-100 shadow-slate-200'}`}>
               
               <button 
                 type="button" 
                 onClick={() => setShowForm(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors"
+                className={`absolute top-4 right-4 p-1 rounded-full hover:bg-slate-800 transition-colors ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
               >
                 <X className="w-5 h-5" />
               </button>
 
               <div>
-                <h2 className="text-lg font-bold text-white">{editingTask ? 'Editar Tarea' : 'Nueva Tarea'}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <h2 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-slate-950'}`}>{editingTask ? 'Editar Tarea' : 'Nueva Tarea'}</h2>
+                <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                   {editingTask ? 'Modifica los datos de la actividad' : 'Completa todos los campos obligatorios'}
                 </p>
               </div>
               
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">Nombre de la tarea *</label>
+                <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Nombre de la tarea *</label>
                 <input
                   type="text"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className={`w-full rounded-xl p-3 text-[16px] focus:outline-none focus:ring-2 transition-all ${darkMode ? 'bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-600 focus:ring-indigo-500/50' : 'bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-indigo-300'}`}
                   placeholder="Ej: Lavar el carro"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -732,16 +789,16 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">Responsable *</label>
+                <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Responsable *</label>
                 <select
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
+                  className={`w-full rounded-xl p-3 text-[16px] focus:outline-none focus:ring-2 transition-all appearance-none ${darkMode ? 'bg-slate-950 border border-slate-800 text-slate-100 focus:ring-indigo-500/50' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:ring-indigo-300'}`}
                   value={assignedTo}
                   onChange={(e) => setAssignedTo(e.target.value)}
                   required
                 >
-                  <option value="" disabled>Selecciona un responsable</option>
+                  <option value="" disabled className={darkMode ? 'bg-slate-900' : 'bg-white'}>Selecciona un responsable</option>
                   {profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
+                    <option key={profile.id} value={profile.id} className={darkMode ? 'bg-slate-900' : 'bg-white'}>
                       {profile.name}
                     </option>
                   ))}
@@ -749,15 +806,15 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">¿Cuándo inicia? *</label>
+                <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>¿Cuándo inicia? *</label>
                 <select
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
+                  className={`w-full rounded-xl p-3 text-[16px] focus:outline-none focus:ring-2 transition-all appearance-none ${darkMode ? 'bg-slate-950 border border-slate-800 text-slate-100 focus:ring-indigo-500/50' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:ring-indigo-300'}`}
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   required
                 >
                   {dateOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
+                    <option key={opt.value} value={opt.value} className={darkMode ? 'bg-slate-900' : 'bg-white'}>
                       {opt.label}
                     </option>
                   ))}
@@ -765,11 +822,11 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">Frecuencia en días *</label>
+                <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Frecuencia en días *</label>
                 <input
                   type="number"
                   min="1"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className={`w-full rounded-xl p-3 text-[16px] focus:outline-none focus:ring-2 transition-all ${darkMode ? 'bg-slate-950 border border-slate-800 text-slate-100 focus:ring-indigo-500/50' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:ring-indigo-300'}`}
                   value={intervalDays}
                   onChange={(e) => setIntervalDays(Number(e.target.value))}
                   required
