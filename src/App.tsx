@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User } from 'lucide-react';
+import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Check, RotateCcw } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import type { Profile, Task } from './types/database';
 
@@ -42,18 +42,35 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-type ToastData = { message: string; type: 'success' | 'error' } | null;
+type ToastData = {
+  message: string;
+  type: 'success' | 'error';
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+} | null;
 
 const ToastNotification = ({ toast }: { toast: ToastData }) => {
   if (!toast) return null;
   return (
-    <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2.5 px-4 py-2.5 rounded-full shadow-2xl text-sm font-medium animate-in slide-in-from-top-4 fade-in duration-300 backdrop-blur-md ${
+    <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-full shadow-2xl text-sm font-medium animate-in slide-in-from-top-4 fade-in duration-300 backdrop-blur-md ${
       toast.type === 'success'
-        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+        ? 'bg-slate-900/95 text-emerald-400 border border-emerald-500/30'
+        : 'bg-slate-900/95 text-rose-400 border border-rose-500/30'
     }`}>
-      {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-      {toast.message}
+      <div className="flex items-center gap-2">
+        {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+        <span className="text-slate-200">{toast.message}</span>
+      </div>
+      {toast.action && (
+        <button
+          onClick={toast.action.onClick}
+          className="ml-1 px-2.5 py-0.5 rounded-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-xs font-bold border border-indigo-500/40 transition-colors uppercase tracking-wider"
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>
   );
 };
@@ -79,13 +96,17 @@ export default function App() {
   const todayStr = getTodayFormatted();
   const isAdmin = session?.user?.email === ADMIN_EMAIL;
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success',
+    action?: { label: string; onClick: () => void }
+  ) => {
+    setToast({ message, type, action });
   };
 
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
+      const timer = setTimeout(() => setToast(null), toast.action ? 5000 : 3000);
       return () => clearTimeout(timer);
     }
   }, [toast]);
@@ -276,6 +297,10 @@ export default function App() {
 
     if (!error) {
       await refreshData();
+      showToast(`"${task.title}" completada 🎉`, 'success', {
+        label: 'Deshacer',
+        onClick: () => handleUndoTask(task),
+      });
     }
   };
 
@@ -284,10 +309,12 @@ export default function App() {
       next_due_date: todayStr,
     }).eq('id', task.id);
 
-    if (!error) await refreshData();
+    if (!error) {
+      await refreshData();
+      showToast(`Tarea reasignada a Hoy`, 'success');
+    }
   };
 
-  // VALIDACIÓN DE PERMISO PARA ELIMINAR
   const handleDeleteTask = async (taskId: string) => {
     if (!isAdmin) {
       showToast('Solo el administrador puede borrar tareas', 'error');
@@ -446,7 +473,6 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          {/* SOLO SE MUESTRA SI ES ADMIN */}
                           {isAdmin && (
                             <button
                               onClick={() => handleDeleteTask(task.id)}
@@ -458,9 +484,9 @@ export default function App() {
                           )}
                           <button
                             onClick={() => handleCompleteTask(task)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium px-4 py-1.5 rounded-lg transition-all active:scale-95 shrink-0"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all active:scale-95 shrink-0"
                           >
-                            Terminar
+                            <Check className="w-3.5 h-3.5" /> Completar
                           </button>
                         </div>
                       </div>
@@ -484,19 +510,18 @@ export default function App() {
                 <h2 className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-3 pl-1">Próximas</h2>
                 <div className="space-y-3">
                   {upcomingTasks.map((task) => (
-                    <div key={task.id} className="bg-slate-900/60 border border-slate-800/50 p-4 rounded-2xl shadow-sm space-y-3 transition-all opacity-80 hover:opacity-100">
+                    <div key={task.id} className="bg-slate-900/40 border border-slate-800/40 p-4 rounded-2xl shadow-sm space-y-3 transition-all opacity-75 hover:opacity-100">
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1.5">
                           <h3 className="font-semibold text-sm text-slate-400">{task.title}</h3>
                           <RenderBadge profileId={task.assigned_to} />
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {/* SOLO SE MUESTRA SI ES ADMIN */}
+                        <div className="flex items-center gap-1 shrink-0">
                           {isAdmin && (
                             <button
                               onClick={() => handleDeleteTask(task.id)}
-                              className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                              className="text-slate-600 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
                               title="Eliminar tarea"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -504,15 +529,15 @@ export default function App() {
                           )}
                           <button
                             onClick={() => handleUndoTask(task)}
-                            title="Presiona para deshacer"
-                            className="bg-emerald-600/10 text-emerald-500 border border-emerald-500/20 text-xs font-semibold px-4 py-1.5 rounded-lg shrink-0 transition-all active:scale-95 cursor-pointer opacity-80 hover:opacity-100"
+                            title="Mover a hoy manualmente"
+                            className="text-slate-500 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
                           >
-                            ✓ Hecho
+                            <RotateCcw className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/60 text-[11px]">
+                      <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/40 text-[11px]">
                         <span className="text-slate-500">
                           Cada <span className="text-indigo-400/60 font-medium">{task.interval_days} días</span>
                         </span>
