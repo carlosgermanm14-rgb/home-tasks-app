@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Lock, Check, RotateCcw, Pencil, Moon, Sun } from 'lucide-react';
+import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Lock, Check, RotateCcw, Pencil, Moon, Sun, Zap } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import type { Profile, Task } from './types/database';
 
@@ -44,7 +44,7 @@ function urlBase64ToUint8Array(base64String: string) {
 
 type ToastData = {
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
   action?: {
     label: string;
     onClick: () => void;
@@ -53,14 +53,17 @@ type ToastData = {
 
 const ToastNotification = ({ toast }: { toast: ToastData }) => {
   if (!toast) return null;
+  
+  const bgColor = toast.type === 'success' ? 'bg-emerald-950' : toast.type === 'error' ? 'bg-rose-950' : 'bg-indigo-950';
+  const textColor = toast.type === 'success' ? 'text-emerald-300' : toast.type === 'error' ? 'text-rose-300' : 'text-indigo-300';
+  const borderColor = toast.type === 'success' ? 'border-emerald-500/30' : toast.type === 'error' ? 'border-rose-500/30' : 'border-indigo-500/30';
+
   return (
-    <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-full shadow-2xl text-sm font-medium animate-in slide-in-from-top-4 fade-in duration-300 backdrop-blur-md ${
-      toast.type === 'success'
-        ? 'bg-slate-900/95 text-emerald-400 border border-emerald-500/30'
-        : 'bg-slate-900/95 text-rose-400 border border-rose-500/30'
-    }`}>
+    <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-full shadow-2xl text-sm font-medium animate-in slide-in-from-top-4 fade-in duration-300 backdrop-blur-md ${bgColor} ${textColor} ${borderColor} border`}>
       <div className="flex items-center gap-2">
-        {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+        {toast.type === 'success' && <CheckCircle2 className="w-4 h-4" />}
+        {toast.type === 'error' && <AlertCircle className="w-4 h-4" />}
+        {toast.type === 'info' && <Zap className="w-4 h-4" />}
         <span className="text-slate-200">{toast.message}</span>
       </div>
       {toast.action && (
@@ -89,6 +92,7 @@ export default function App() {
   const [taskToDeleteId, setTaskToDeleteId] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
+  const [triggerLoading, setTriggerLoading] = useState(false);
 
   const todayStr = getTodayFormatted();
 
@@ -136,7 +140,7 @@ export default function App() {
 
   const showToast = (
     message: string,
-    type: 'success' | 'error' = 'success',
+    type: 'success' | 'error' | 'info' = 'success',
     action?: { label: string; onClick: () => void }
   ) => {
     setToast({ message, type, action });
@@ -315,6 +319,35 @@ export default function App() {
     await supabase.auth.signOut();
   };
 
+  const handleManualTrigger = async () => {
+    if (!isAdmin || !session) return;
+    setTriggerLoading(true);
+    showToast('Iniciando envío manual secuencial...', 'info');
+
+    try {
+      const response = await fetch('/api/trigger-notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        showToast(data.message, 'success');
+      } else {
+        showToast(data.error || 'Error al disparar notificaciones', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error de red al conectar con la API', 'error');
+    } finally {
+      setTriggerLoading(false);
+    }
+  };
+
   const handleOpenCreateModal = () => {
     if (!isAdmin) {
       showToast('Solo el administrador puede crear tareas', 'error');
@@ -458,7 +491,6 @@ export default function App() {
     );
   };
 
-  // VISTA DE LOGIN LIMPIA Y ELEGANTE
   if (!session) {
     return (
       <div 
@@ -558,6 +590,20 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {isAdmin && (
+          <section className={`mb-6 p-4 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+            <h2 className={`text-xs font-bold tracking-wider uppercase mb-3 pl-1 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Panel de Control (Admin)</h2>
+            <button
+              onClick={handleManualTrigger}
+              disabled={triggerLoading}
+              className={`w-full flex items-center justify-center gap-2 font-semibold text-white py-3.5 rounded-xl text-sm shadow-md transition-all active:scale-95 disabled:opacity-50 ${darkMode ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-indigo-700 hover:bg-indigo-600'}`}
+            >
+              <Zap className="w-4 h-4" />
+              {triggerLoading ? 'Enviando secuencialmente...' : 'Disparar Notificaciones Dinámicas'}
+            </button>
+          </section>
+        )}
 
         <section className="pb-16">
           {loading ? (
@@ -664,7 +710,7 @@ export default function App() {
                             )}
                             <button
                               onClick={() => handleUndoTask(task)}
-                              title="Mover a hoy manualmente"
+                              title="Mover a hoy manually"
                               className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800/60' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100/80'}`}
                             >
                               <RotateCcw className="w-4 h-4" />
