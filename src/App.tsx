@@ -433,7 +433,7 @@ export default function App() {
     );
   };
 
-  // VISTA LOGIN: Usa únicamente fondo_login.png en toda la pantalla
+  // VISTA LOGIN
   if (!session) {
     return (
       <div 
@@ -442,7 +442,6 @@ export default function App() {
       >
         <ToastNotification toast={toast} />
 
-        {/* Tarjeta de Formulario limpia sobre la ilustración */}
         <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-sky-100/80 mb-4 sm:mb-8 relative z-10">
           
           <h2 className="text-center font-bold text-slate-800 text-sm mb-5">
@@ -456,7 +455,7 @@ export default function App() {
                 type="email"
                 required
                 placeholder="Usuario o Correo"
-                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
+                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -468,7 +467,7 @@ export default function App() {
                 type="password"
                 required
                 placeholder="Contraseña"
-                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
+                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -482,6 +481,16 @@ export default function App() {
               {authLoading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
             </button>
           </form>
+
+          <div className="text-center space-y-1.5 pt-5">
+            <p className="text-[11px] font-bold text-sky-600 hover:underline cursor-pointer">
+              Crear cuenta nueva
+            </p>
+            <p className="text-[11px] font-medium text-sky-600/80 hover:underline cursor-pointer">
+              ¿Olvidaste tu contraseña?
+            </p>
+          </div>
+
         </div>
       </div>
     );
@@ -724,7 +733,7 @@ export default function App() {
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">Nombre de la tarea *</label>
                 <input
                   type="text"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                   placeholder="Ej: Lavar el carro"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -735,7 +744,7 @@ export default function App() {
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">Responsable *</label>
                 <select
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
                   value={assignedTo}
                   onChange={(e) => setAssignedTo(e.target.value)}
                   required
@@ -752,7 +761,7 @@ export default function App() {
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">¿Cuándo inicia? *</label>
                 <select
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   required
@@ -770,7 +779,7 @@ export default function App() {
                 <input
                   type="number"
                   min="1"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[16px] text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                   value={intervalDays}
                   onChange={(e) => setIntervalDays(Number(e.target.value))}
                   required
