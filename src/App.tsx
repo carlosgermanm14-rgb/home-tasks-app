@@ -438,7 +438,7 @@ export default function App() {
     return (
       <div 
         className="min-h-screen w-full flex flex-col justify-end items-center p-4 font-sans select-none bg-[#bce1fa] bg-top bg-cover bg-no-repeat relative"
-        style={{ backgroundImage: "url('/fondo_login.png')" }}
+        style={{ backgroundImage: "url('/fondo_login.webp')" }}
       >
         <ToastNotification toast={toast} />
 
@@ -495,7 +495,7 @@ export default function App() {
       {/* Fondo en Modo Oscuro con fondo_login.png */}
       <div 
         className="fixed inset-0 z-0 opacity-10 pointer-events-none bg-cover bg-center"
-        style={{ backgroundImage: "url('/fondo_login.png')" }}
+        style={{ backgroundImage: "url('/fondo_login.webp')" }}
       ></div>
 
       <div className="relative z-10 p-4 max-w-md mx-auto">
