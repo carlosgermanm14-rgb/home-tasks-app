@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   try {
     const type = req.query.type || 'morning';
 
-    // 1. Obtener la fecha exacta de Culiacán (Sinaloa)
+    // 1. Fecha exacta de Culiacán (YYYY-MM-DD)
     const dateInSinaloa = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Mazatlan"}));
     const yyyy = dateInSinaloa.getFullYear();
     const mm = String(dateInSinaloa.getMonth() + 1).padStart(2, '0');
@@ -30,21 +30,20 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'No hay dispositivos suscritos.' });
     }
 
-    // 3. Obtener perfiles para relacionar nombres
+    // 3. Obtener nombres de los responsables
     const { data: profiles } = await supabase.from('profiles').select('*');
     const profilesMap = (profiles || []).reduce((acc, p) => {
       acc[p.id] = p.name;
       return acc;
     }, {});
 
-    // 4. Obtener todas las tareas pendientes de hoy o atrasadas
-    const { data: tasks, error: tasksError } = await supabase
-      .from('tasks')
-      .select('*')
-      .lte('next_due_date', todayStr);
+    // 4. Obtener todas las tareas y filtrar en JS idéntico a la App
+    const { data: allTasks, error: tasksError } = await supabase.from('tasks').select('*');
     if (tasksError) throw tasksError;
 
-    // 5. Verificar historial si es tarde
+    const tasks = (allTasks || []).filter(t => t.next_due_date <= todayStr);
+
+    // 5. Historial de completadas para la tarde
     let todaysLogs = [];
     if (type === 'afternoon') {
       const startOfDayISO = new Date(`${todayStr}T00:00:00-07:00`).toISOString();
@@ -55,12 +54,11 @@ export default async function handler(req, res) {
       todaysLogs = logs || [];
     }
 
-    const count = tasks ? tasks.length : 0;
+    const count = tasks.length;
     let title = '';
     let body = '';
 
-    // Mapear lista de tareas con el responsable (Ej: "Barrer cochera (Aida), Limpiar abanicos (Geovanny)")
-    const taskSummary = (tasks || []).map((t) => {
+    const taskSummary = tasks.map((t) => {
       const respName = profilesMap[t.assigned_to] || 'Sin asignar';
       return `${t.title} (${respName})`;
     }).join(', ');
@@ -81,12 +79,14 @@ export default async function handler(req, res) {
       }
     }
 
-    // Si no hay mensaje que enviar, finaliza
     if (!body) {
-      return res.status(200).json({ success: true, message: 'No hay tareas pendientes para notificar.' });
+      return res.status(200).json({ 
+        success: true, 
+        message: `No hay tareas pendientes para notificar. (Fecha: ${todayStr})` 
+      });
     }
 
-    // 6. Enviar a TODOS los dispositivos suscritos sin filtrar por user_id
+    // 6. Enviar notificación a todos los dispositivos
     const notifications = subscriptions.map((sub) => {
       const pushSubscription = {
         endpoint: sub.endpoint,
