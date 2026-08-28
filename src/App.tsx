@@ -272,7 +272,6 @@ export default function App() {
       }
 
       setPushEnabled(false);
-      // Solo mostramos toast si no estamos cerrando sesión
       if (session) showToast('Notificaciones desactivadas', 'success');
     } catch (error) {
       console.error(error);
@@ -288,22 +287,17 @@ export default function App() {
     setAuthLoading(false);
   };
 
-  // SOLUCIÓN AL "HOLA AIDA" EN CUENTA GEOVANNY
   const handleSignOut = async () => {
-    // 1. UNSUBSCRIBE completely (browser & DB) IF signed in and notifications active
-    // Esto limpia la base de datos para que el endpoint de este teléfono ya no esté asociado a Aida.
     if (pushEnabled) {
       try {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
 
         if (subscription) {
-          // Desactivar en el navegador
           await subscription.unsubscribe();
 
           const subscriptionJSON = subscription.toJSON();
           if (session?.user?.id && subscriptionJSON.endpoint) {
-            // Eliminar de la base de datos
             await supabase
               .from('push_subscriptions')
               .delete()
@@ -316,11 +310,8 @@ export default function App() {
       }
     }
 
-    // 2. Clear frontend state for notifications
     setPushEnabled(false);
-
-    // 3. Clear auth state and sign out
-    setSession(null); // Force local clear
+    setSession(null);
     await supabase.auth.signOut();
   };
 
@@ -467,74 +458,54 @@ export default function App() {
     );
   };
 
+  // VISTA DE LOGIN LIMPIA Y ELEGANTE
   if (!session) {
     return (
       <div 
-        className={`min-h-screen w-full flex flex-col items-center justify-start sm:justify-center font-sans select-none ${darkMode ? 'bg-slate-950 bg-repeat pb-8' : 'bg-[#cce8fb] bg-repeat pb-8'}`}
-        style={{ backgroundImage: "url('/fondo_login.webp')", opacity: darkMode ? 1 : 0.8 }}
+        className="min-h-screen w-full flex flex-col justify-end items-center p-4 font-sans select-none bg-[#bce1fa] bg-top bg-cover bg-no-repeat relative"
+        style={{ backgroundImage: "url('/fondo_login.webp')" }}
       >
         <ToastNotification toast={toast} />
-        
-        <div className="w-full max-w-sm flex flex-col items-center relative">
+
+        <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-sky-100/80 mb-4 sm:mb-8 relative z-10">
           
-          <div className="w-full px-2 pt-2 flex justify-center z-0 relative">
-            <img 
-              src="/fondo_login.jpg" 
-              alt="Chore Chums" 
-              className="w-full h-auto object-contain max-h-[360px] rounded-t-3xl"
-            />
-             <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="absolute top-6 right-6 p-2 rounded-full backdrop-blur-sm bg-slate-900/50 text-slate-300 hover:bg-slate-800/80 transition-colors z-10"
-              title={darkMode ? "Activar modo claro" : "Activar modo oscuro"}
-            >
-              {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
-            </button>
-          </div>
+          <h2 className="text-center font-bold text-slate-800 text-sm mb-5">
+            ¡Hola! Inicia sesión para continuar.
+          </h2>
 
-          <div className="w-full px-4 -mt-20 z-10 relative">
-            <div className={`rounded-[32px] p-6 shadow-2xl border ${darkMode ? 'bg-slate-900/90 border-slate-700/50 backdrop-blur-md' : 'bg-white border-sky-100'}`}>
-              
-              <h2 className={`text-center font-bold text-sm mb-5 ${darkMode ? 'text-slate-100' : 'text-slate-800'}`}>
-                ¡Hola! Inicia sesión para continuar.
-              </h2>
-
-              <form onSubmit={handleAuth} className="space-y-3.5">
-                <div className="relative">
-                  <User className={`w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-sky-400'}`} />
-                  <input
-                    type="email"
-                    required
-                    placeholder="Usuario o Correo"
-                    className={`w-full border rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium focus:outline-none focus:ring-2 transition-all ${darkMode ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-600 focus:ring-slate-600' : 'bg-[#f0f7fd] border-sky-100 text-slate-700 placeholder:text-slate-400 focus:ring-sky-300'}`}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-
-                <div className="relative">
-                  <Lock className={`w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-sky-400'}`} />
-                  <input
-                    type="password"
-                    required
-                    placeholder="Contraseña"
-                    className={`w-full border rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium focus:outline-none focus:ring-2 transition-all ${darkMode ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-600 focus:ring-slate-600' : 'bg-[#f0f7fd] border-sky-100 text-slate-700 placeholder:text-slate-400 focus:ring-sky-300'}`}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={authLoading}
-                  className={`w-full font-extrabold text-xs tracking-widest uppercase py-4 rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 mt-1 ${darkMode ? 'bg-slate-100 hover:bg-slate-200 text-slate-950 shadow-slate-900/50' : 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-950/20'}`}
-                >
-                  {authLoading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
-                </button>
-              </form>
+          <form onSubmit={handleAuth} className="space-y-3.5">
+            <div className="relative">
+              <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-sky-400" />
+              <input
+                type="email"
+                required
+                placeholder="Usuario o Correo"
+                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
-          </div>
 
+            <div className="relative">
+              <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-sky-400" />
+              <input
+                type="password"
+                required
+                placeholder="Contraseña"
+                className="w-full bg-[#f0f7fd] border border-sky-100 rounded-2xl py-3.5 pl-11 pr-4 text-[16px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300 transition-all"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs tracking-wider uppercase py-4 rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 mt-1"
+            >
+              {authLoading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
+            </button>
+          </form>
         </div>
       </div>
     );
