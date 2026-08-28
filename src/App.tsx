@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from './supabaseClient';
-import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Check, RotateCcw } from 'lucide-react';
+import { Plus, X, LogOut, Bell, BellOff, CheckCircle2, AlertCircle, Trash2, User, Check, RotateCcw, Pencil } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import type { Profile, Task } from './types/database';
 
@@ -85,16 +85,55 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [taskToDeleteId, setTaskToDeleteId] = useState<string | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
+
+  const todayStr = getTodayFormatted();
 
   const [title, setTitle] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [intervalDays, setIntervalDays] = useState(7);
+  const [startDate, setStartDate] = useState(todayStr);
 
   const [toast, setToast] = useState<ToastData>(null);
 
-  const todayStr = getTodayFormatted();
   const isAdmin = session?.user?.email === ADMIN_EMAIL;
+
+  // Generar las opciones de fecha dinámicamente (Hoy, Mañana, Lunes 24...)
+  const dateOptions = useMemo(() => {
+    const options = [];
+    const baseDate = new Date();
+
+    for (let i = 0; i <= 7; i++) {
+      const date = new Date(baseDate);
+      date.setDate(baseDate.getDate() + i);
+
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      const value = `${yyyy}-${mm}-${dd}`;
+
+      let label; // Eliminamos la asignación inicial de = ''
+      
+      if (i === 0) {
+        label = 'Hoy';
+      } else if (i === 1) {
+        label = 'Mañana';
+      } else {
+        const weekday = date.toLocaleDateString('es-MX', { weekday: 'long' });
+        label = `${weekday.charAt(0).toUpperCase() + weekday.slice(1)} ${date.getDate()}`;
+      }
+      
+      options.push({ value, label });
+    }
+
+    if (startDate && !options.some(o => o.value === startDate)) {
+      options.unshift({ value: startDate, label: `Fecha actual (${startDate})` });
+    }
+
+    return options;
+  }, [startDate]);
 
   const showToast = (
     message: string,
@@ -253,27 +292,83 @@ export default function App() {
     await supabase.auth.signOut();
   };
 
-  const handleCreateTask = async (e: React.FormEvent) => {
+  const handleOpenCreateModal = () => {
+    if (!isAdmin) {
+      showToast('Solo el administrador puede crear tareas', 'error');
+      return;
+    }
+    setEditingTask(null);
+    setTitle('');
+    setAssignedTo('');
+    setIntervalDays(7);
+    setStartDate(todayStr);
+    setShowForm(true);
+  };
+
+  const handleOpenEditModal = (task: Task) => {
+    if (!isAdmin) {
+      showToast('Solo el administrador puede editar tareas', 'error');
+      return;
+    }
+    setEditingTask(task);
+    setTitle(task.title);
+    setAssignedTo(task.assigned_to || '');
+    setIntervalDays(task.interval_days);
+    setStartDate(task.next_due_date);
+    setShowForm(true);
+  };
+
+  const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
 
-    const newTask = {
-      title,
-      assigned_to: assignedTo || null,
-      interval_days: intervalDays,
-      next_due_date: todayStr, 
-      is_completed: false,
-    };
+    if (!isAdmin) return;
 
-    const { error } = await supabase.from('tasks').insert([newTask]);
+    if (!title.trim()) {
+      showToast('El nombre de la tarea es obligatorio', 'error');
+      return;
+    }
+    if (!assignedTo) {
+      showToast('Debes asignar un responsable', 'error');
+      return;
+    }
+    if (!startDate) {
+      showToast('Debes seleccionar una fecha de inicio', 'error');
+      return;
+    }
 
-    if (!error) {
-      setTitle('');
-      setShowForm(false);
-      await refreshData();
-      showToast('Tarea guardada exitosamente', 'success');
+    if (editingTask) {
+      const { error } = await supabase.from('tasks').update({
+        title: title.trim(),
+        assigned_to: assignedTo,
+        interval_days: intervalDays,
+        next_due_date: startDate,
+      }).eq('id', editingTask.id);
+
+      if (!error) {
+        setShowForm(false);
+        await refreshData();
+        showToast('Tarea actualizada correctamente', 'success');
+      } else {
+        showToast('Error al actualizar la tarea', 'error');
+      }
     } else {
-      showToast('Error al crear la tarea', 'error');
+      const newTask = {
+        title: title.trim(),
+        assigned_to: assignedTo,
+        interval_days: intervalDays,
+        next_due_date: startDate,
+        is_completed: false,
+      };
+
+      const { error } = await supabase.from('tasks').insert([newTask]);
+
+      if (!error) {
+        setShowForm(false);
+        await refreshData();
+        showToast('Tarea guardada exitosamente', 'success');
+      } else {
+        showToast('Error al crear la tarea', 'error');
+      }
     }
   };
 
@@ -315,16 +410,12 @@ export default function App() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    if (!isAdmin) {
-      showToast('Solo el administrador puede borrar tareas', 'error');
-      return;
-    }
+  const confirmDeleteTask = async () => {
+    if (!taskToDeleteId || !isAdmin) return;
 
-    if (!window.confirm('¿Seguro que deseas eliminar esta tarea?')) return;
+    const { error } = await supabase.from('tasks').delete().eq('id', taskToDeleteId);
 
-    const { error } = await supabase.from('tasks').delete().eq('id', taskId);
-
+    setTaskToDeleteId(null);
     if (!error) {
       await refreshData();
       showToast('Tarea eliminada', 'success');
@@ -451,7 +542,9 @@ export default function App() {
               <Plus className="w-6 h-6 text-slate-500" />
             </div>
             <p className="text-sm font-medium text-slate-300">Nada por aquí</p>
-            <p className="text-xs text-slate-500 mt-1">Presiona el botón + para agregar tareas</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {isAdmin ? 'Presiona el botón + para agregar tareas' : 'Cuando se agreguen tareas las verás aquí'}
+            </p>
           </div>
         ) : (
           <>
@@ -472,19 +565,28 @@ export default function App() {
                           <RenderBadge profileId={task.assigned_to} />
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
                           {isAdmin && (
-                            <button
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
-                              title="Eliminar tarea"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleOpenEditModal(task)}
+                                className="text-slate-500 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                                title="Editar tarea"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setTaskToDeleteId(task.id)}
+                                className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                                title="Eliminar tarea"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
                           <button
                             onClick={() => handleCompleteTask(task)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all active:scale-95 shrink-0"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow-md shadow-emerald-600/20 transition-all active:scale-95 shrink-0 ml-1"
                           >
                             <Check className="w-3.5 h-3.5" /> Completar
                           </button>
@@ -519,13 +621,22 @@ export default function App() {
 
                         <div className="flex items-center gap-1 shrink-0">
                           {isAdmin && (
-                            <button
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="text-slate-600 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
-                              title="Eliminar tarea"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleOpenEditModal(task)}
+                                className="text-slate-500 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+                                title="Editar tarea"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setTaskToDeleteId(task.id)}
+                                className="text-slate-600 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
+                                title="Eliminar tarea"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
                           <button
                             onClick={() => handleUndoTask(task)}
@@ -554,19 +665,52 @@ export default function App() {
         )}
       </section>
 
-      {/* Botón Flotante */}
-      <button
-        onClick={() => setShowForm(true)}
-        className="fixed bottom-8 right-1/2 translate-x-[200px] sm:translate-x-[180px] w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-all active:scale-90 z-40"
-        style={{ right: 'max(1.5rem, calc(50% - 200px + 1.5rem))', transform: 'none' }}
-      >
-        <Plus className="w-7 h-7" />
-      </button>
+      {/* Botón Flotante SOLO PARA ADMIN */}
+      {isAdmin && (
+        <button
+          onClick={handleOpenCreateModal}
+          className="fixed bottom-8 right-1/2 translate-x-[200px] sm:translate-x-[180px] w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-all active:scale-90 z-40"
+          style={{ right: 'max(1.5rem, calc(50% - 200px + 1.5rem))', transform: 'none' }}
+        >
+          <Plus className="w-7 h-7" />
+        </button>
+      )}
 
-      {/* Modal / Formulario */}
+      {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN NATIVO */}
+      {taskToDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 text-center">
+            <div className="w-12 h-12 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-500/20">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">¿Eliminar esta tarea?</h3>
+              <p className="text-xs text-slate-400 mt-1">Esta acción no se puede deshacer y borrará el historial de la actividad.</p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setTaskToDeleteId(null)}
+                className="w-1/2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTask}
+                className="w-1/2 bg-rose-600 hover:bg-rose-500 text-white font-medium py-3 rounded-xl text-xs transition-all shadow-lg shadow-rose-600/25"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal / Formulario (Crear y Editar) */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <form onSubmit={handleCreateTask} className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-5 relative animate-in fade-in zoom-in-95 duration-200">
+          <form onSubmit={handleSaveTask} className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 relative animate-in fade-in zoom-in-95 duration-200">
             
             <button 
               type="button" 
@@ -577,16 +721,18 @@ export default function App() {
             </button>
 
             <div>
-              <h2 className="text-lg font-bold text-white">Nueva Tarea</h2>
-              <p className="text-xs text-slate-400 mt-1">Completa los datos para registrar un pendiente.</p>
+              <h2 className="text-lg font-bold text-white">{editingTask ? 'Editar Tarea' : 'Nueva Tarea'}</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {editingTask ? 'Modifica los datos de la actividad' : 'Completa todos los campos obligatorios'}
+              </p>
             </div>
             
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Nombre de la tarea</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Nombre de la tarea *</label>
               <input
                 type="text"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                placeholder="Ej: Regar las plantas"
+                placeholder="Ej: Lavar el carro"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
@@ -594,13 +740,14 @@ export default function App() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Responsable</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Responsable *</label>
               <select
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
                 value={assignedTo}
                 onChange={(e) => setAssignedTo(e.target.value)}
+                required
               >
-                <option value="">Sin asignar</option>
+                <option value="" disabled>Selecciona un responsable</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
                     {profile.name}
@@ -609,8 +756,25 @@ export default function App() {
               </select>
             </div>
 
+            {/* SE REEMPLAZÓ EL CAMPO 'DATE' POR UN 'SELECT' INTELIGENTE */}
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Frecuencia (días)</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">¿Cuándo inicia? *</label>
+              <select
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                required
+              >
+                {dateOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Frecuencia en días *</label>
               <input
                 type="number"
                 min="1"
@@ -625,7 +789,7 @@ export default function App() {
               type="submit"
               className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white font-medium py-3.5 rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/25 mt-2"
             >
-              Guardar Tarea
+              {editingTask ? 'Actualizar Tarea' : 'Guardar Tarea'}
             </button>
           </form>
         </div>
