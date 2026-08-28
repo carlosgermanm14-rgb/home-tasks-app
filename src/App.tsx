@@ -481,16 +481,6 @@ export default function App() {
               {authLoading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
             </button>
           </form>
-
-          <div className="text-center space-y-1.5 pt-5">
-            <p className="text-[11px] font-bold text-sky-600 hover:underline cursor-pointer">
-              Crear cuenta nueva
-            </p>
-            <p className="text-[11px] font-medium text-sky-600/80 hover:underline cursor-pointer">
-              ¿Olvidaste tu contraseña?
-            </p>
-          </div>
-
         </div>
       </div>
     );
