@@ -14,17 +14,16 @@ webPush.setVapidDetails(
 
 export default async function handler(req, res) {
   try {
-    // Detectar qué horario se está ejecutando (morning, afternoon, evening)
     const type = req.query.type || 'morning';
 
-    // 1. Obtener la fecha exacta de Culiacán (Sinaloa) sin importar dónde esté el servidor
+    // 1. Obtener la fecha exacta de Culiacán (Sinaloa)
     const dateInSinaloa = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Mazatlan"}));
     const yyyy = dateInSinaloa.getFullYear();
     const mm = String(dateInSinaloa.getMonth() + 1).padStart(2, '0');
     const dd = String(dateInSinaloa.getDate()).padStart(2, '0');
     const todayStr = `${yyyy}-${mm}-${dd}`;
 
-    // 2. Obtener todas las suscripciones push
+    // 2. Obtener suscripciones push
     const { data: subscriptions, error: subError } = await supabase.from('push_subscriptions').select('*');
     if (subError) throw subError;
     if (!subscriptions || subscriptions.length === 0) {
@@ -38,27 +37,25 @@ export default async function handler(req, res) {
       .lte('next_due_date', todayStr);
     if (tasksError) throw tasksError;
 
-    // 4. Si es la noche (6pm), obtener el historial para saber si terminaron algo hoy
+    // 4. Si es la tarde (4pm), buscar en el historial si terminaron algo hoy
     let todaysLogs = [];
-    if (type === 'evening') {
+    if (type === 'afternoon') {
       const startOfDayISO = new Date(`${todayStr}T00:00:00-07:00`).toISOString();
       const { data: logs } = await supabase
         .from('task_logs')
         .select('*')
-        .gte('created_at', startOfDayISO); // Traer todo lo que se completó hoy
+        .gte('created_at', startOfDayISO);
       todaysLogs = logs || [];
     }
 
-    // 5. Configurar y enviar las notificaciones personalizadas
+    // 5. Enviar notificaciones
     const notifications = subscriptions.map((sub) => {
-      // Filtrar tareas que le tocan a esta persona en específico
       const userTasks = tasks.filter((t) => t.assigned_to === sub.user_id);
       const count = userTasks.length;
 
-      let title = 'Tareas del Hogar 🏠';
+      let title = '';
       let body = '';
 
-      // --- LÓGICA DE MENSAJES AMIGABLES ---
       if (type === 'morning') {
         if (count > 0) {
           const taskList = userTasks.map((t) => t.title).join(', ');
@@ -69,26 +66,19 @@ export default async function handler(req, res) {
       else if (type === 'afternoon') {
         if (count > 0) {
           const taskList = userTasks.map((t) => t.title).join(', ');
-          title = '¡Recordatorio! ⏰';
-          body = `Aún tienes ${count} pendiente(s) por terminar: ${taskList}.`;
-        }
-      } 
-      else if (type === 'evening') {
-        if (count > 0) {
-          const taskList = userTasks.map((t) => t.title).join(', ');
-          title = '¡Se acaba el día! 🌙';
-          body = `Último aviso, te faltan estas tareas: ${taskList}.`;
+          title = '¡Recordatorio de la tarde! ⏰';
+          body = `Aún tienes pendientes por terminar: ${taskList}.`;
         } else {
-          // No tiene pendientes. ¿Terminó tareas el día de hoy?
+          // Si no tiene pendientes, verificamos si hizo algo hoy para felicitarlo
           const userCompletedToday = todaysLogs.filter(l => l.completed_by === sub.user_id);
           if (userCompletedToday.length > 0) {
             title = '¡Misión Cumplida! 🎉';
-            body = 'Gracias por hacer todas tus tareas del hogar hoy. ¡A descansar! Te amo';
+            body = 'Gracias por hacer todas tus tareas del hogar hoy. ¡A disfrutar la tarde!';
           }
         }
       }
 
-      // Si no se asignó un 'body', significa que no hay nada que notificarle a este usuario, lo saltamos.
+      // Si no hay mensaje, saltamos a este usuario
       if (!body) return Promise.resolve();
 
       const pushSubscription = {
@@ -106,7 +96,6 @@ export default async function handler(req, res) {
       });
 
       return webPush.sendNotification(pushSubscription, payload).catch((err) => {
-        // Limpiar suscripciones eliminadas de Chrome/Safari
         if (err.statusCode === 410 || err.statusCode === 404) {
           supabase.from('push_subscriptions').delete().eq('id', sub.id);
         }
