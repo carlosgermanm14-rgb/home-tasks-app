@@ -14,41 +14,43 @@ webPush.setVapidDetails(
 
 export default async function handler(req, res) {
   try {
-    const type = req.query.type || 'morning';
+    const rawType = String(req.query.type || 'morning').trim().toLowerCase();
+    const type = rawType.includes('afternoon') ? 'afternoon' : 'morning';
 
     // 1. Fecha exacta de Culiacán (YYYY-MM-DD)
-    const dateInSinaloa = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Mazatlan"}));
+    const dateInSinaloa = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mazatlan" }));
     const yyyy = dateInSinaloa.getFullYear();
     const mm = String(dateInSinaloa.getMonth() + 1).padStart(2, '0');
     const dd = String(dateInSinaloa.getDate()).padStart(2, '0');
     const todayStr = `${yyyy}-${mm}-${dd}`;
 
-    // 2. Obtener suscripciones push
+    // 2. Obtener dispositivos suscritos
     const { data: subscriptions, error: subError } = await supabase.from('push_subscriptions').select('*');
     if (subError) throw subError;
     if (!subscriptions || subscriptions.length === 0) {
-      return res.status(200).json({ message: 'No hay dispositivos suscritos.' });
+      return res.status(200).json({ success: false, message: 'No hay dispositivos suscritos.' });
     }
 
-    // 3. Obtener nombres de los responsables
+    // 3. Obtener perfiles vinculados con user_id
     const { data: profiles } = await supabase.from('profiles').select('*');
-    const profilesMap = (profiles || []).reduce((acc, p) => {
-      acc[p.id] = p.name;
+    
+    // Crear mapas para buscar rápido por user_id y por profile.id
+    const profileByUserId = (profiles || []).reduce((acc, p) => {
+      if (p.user_id) acc[p.user_id] = p;
       return acc;
     }, {});
 
-    // 4. Obtener todas las tareas de la base de datos
+    // 4. Obtener tareas de hoy o atrasadas
     const { data: allTasks, error: tasksError } = await supabase.from('tasks').select('*');
     if (tasksError) throw tasksError;
 
-    // 5. Normalizar la fecha recortando a 10 caracteres (YYYY-MM-DD)
-    const tasks = (allTasks || []).filter((t) => {
+    const todaysTasks = (allTasks || []).filter((t) => {
       if (!t.next_due_date) return false;
       const cleanTaskDate = String(t.next_due_date).substring(0, 10);
       return cleanTaskDate <= todayStr;
     });
 
-    // 6. Historial de tareas completadas para el turno de la tarde
+    // 5. Historial si es el turno de la tarde
     let todaysLogs = [];
     if (type === 'afternoon') {
       const startOfDayISO = new Date(`${todayStr}T00:00:00-07:00`).toISOString();
@@ -59,73 +61,75 @@ export default async function handler(req, res) {
       todaysLogs = logs || [];
     }
 
-    const count = tasks.length;
-    let title = '';
-    let body = '';
+    // 6. Enviar notificación personalizada A CADA USUARIO
+    const sendResults = await Promise.allSettled(
+      subscriptions.map(async (sub) => {
+        // Encontrar qué perfil le pertenece a este teléfono
+        const userProfile = profileByUserId[sub.user_id];
+        
+        // Filtrar solo las tareas asignadas a este perfil
+        const userTasks = userProfile 
+          ? todaysTasks.filter((t) => t.assigned_to === userProfile.id)
+          : [];
 
-    const taskSummary = tasks.map((t) => {
-      const respName = profilesMap[t.assigned_to] || 'Sin asignar';
-      return `${t.title} (${respName})`;
-    }).join(', ');
+        const count = userTasks.length;
+        let title = '';
+        let body = '';
 
-    if (type === 'morning') {
-      if (count > 0) {
-        title = '¡Buenos días! ☀️';
-        body = `Tareas para hoy en casa: ${taskSummary}.`;
-      }
-    } 
-    else if (type === 'afternoon') {
-      if (count > 0) {
-        title = '¡Recordatorio de la tarde! ⏰';
-        body = `Aún quedan ${count} tarea(s) pendientes: ${taskSummary}.`;
-      } else if (todaysLogs.length > 0) {
-        title = '¡Misión Cumplida! 🎉';
-        body = 'Se han completado las tareas del hogar hoy. ¡A disfrutar la tarde!';
-      }
-    }
+        const taskListStr = userTasks.map((t) => t.title).join(', ');
+        const userName = userProfile ? userProfile.name : '';
 
-    if (!body) {
-      return res.status(200).json({ 
-        success: true, 
-        message: 'No hay tareas pendientes para notificar.',
-        debug: {
-          todayStr,
-          totalTasksInDB: (allTasks || []).length,
-          allTasksInDB: (allTasks || []).map(t => ({
-            title: t.title,
-            rawDate: t.next_due_date,
-            cleanDate: String(t.next_due_date).substring(0, 10)
-          }))
+        if (type === 'morning') {
+          if (count > 0) {
+            title = `¡Buenos días${userName ? ' ' + userName : ''}! ☀️`;
+            body = `Tus tareas para hoy: ${taskListStr}.`;
+          }
+        } else {
+          if (count > 0) {
+            title = `¡Recordatorio${userName ? ' ' + userName : ''}! ⏰`;
+            body = `Aún tienes ${count} pendiente(s): ${taskListStr}.`;
+          } else {
+            // Verificar si este usuario en específico hizo tareas hoy
+            const userCompletedToday = todaysLogs.filter(l => l.completed_by === userProfile?.id);
+            if (userCompletedToday.length > 0) {
+              title = '¡Misión Cumplida! 🎉';
+              body = 'Gracias por completar tus tareas del hogar hoy. ¡A descansar!';
+            }
+          }
         }
-      });
-    }
 
-    // 7. Enviar notificación a todos los dispositivos
-    const notifications = subscriptions.map((sub) => {
-      const pushSubscription = {
-        endpoint: sub.endpoint,
-        keys: {
-          p256dh: sub.p256dh,
-          auth: sub.auth,
-        },
-      };
+        // Si este usuario no tiene tareas ni mensaje, no le enviamos nada
+        if (!body) return Promise.resolve();
 
-      const payload = JSON.stringify({
-        title: title,
-        body: body,
-        url: '/',
-      });
+        const pushSubscription = {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth,
+          },
+        };
 
-      return webPush.sendNotification(pushSubscription, payload).catch((err) => {
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          supabase.from('push_subscriptions').delete().eq('id', sub.id);
-        }
-      });
+        const payload = JSON.stringify({
+          title: title,
+          body: body,
+          url: '/',
+        });
+
+        return webPush.sendNotification(pushSubscription, payload).catch((err) => {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            supabase.from('push_subscriptions').delete().eq('id', sub.id);
+          }
+          throw err;
+        });
+      })
+    );
+
+    const successfulSends = sendResults.filter(r => r.status === 'fulfilled').length;
+
+    return res.status(200).json({ 
+      success: true, 
+      message: `Notificaciones personalizadas enviadas a ${successfulSends} dispositivo(s).`
     });
-
-    await Promise.all(notifications);
-
-    return res.status(200).json({ success: true, message: `Cron ${type} ejecutado a todos los dispositivos.` });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: error.message });
