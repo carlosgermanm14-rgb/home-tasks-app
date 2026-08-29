@@ -53,7 +53,7 @@ type ToastData = {
 
 const ToastNotification = ({ toast }: { toast: ToastData }) => {
   if (!toast) return null;
-  
+
   const bgColor = toast.type === 'success' ? 'bg-emerald-950' : toast.type === 'error' ? 'bg-rose-950' : 'bg-indigo-950';
   const textColor = toast.type === 'success' ? 'text-emerald-300' : toast.type === 'error' ? 'text-rose-300' : 'text-indigo-300';
   const borderColor = toast.type === 'success' ? 'border-emerald-500/30' : toast.type === 'error' ? 'border-rose-500/30' : 'border-indigo-500/30';
@@ -127,7 +127,7 @@ export default function App() {
         const weekday = date.toLocaleDateString('es-MX', { weekday: 'long' });
         label = `${weekday.charAt(0).toUpperCase() + weekday.slice(1)} ${date.getDate()}`;
       }
-      
+
       options.push({ value, label });
     }
 
@@ -418,7 +418,7 @@ export default function App() {
   const handleCompleteTask = async (task: Task) => {
     const nextDate = new Date();
     nextDate.setDate(nextDate.getDate() + task.interval_days);
-    
+
     const yyyy = nextDate.getFullYear();
     const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
     const dd = String(nextDate.getDate()).padStart(2, '0');
@@ -500,7 +500,7 @@ export default function App() {
         <ToastNotification toast={toast} />
 
         <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-sky-100/80 mb-4 sm:mb-8 relative z-10">
-          
+
           <h2 className="text-center font-bold text-slate-800 text-sm mb-5">
             ¡Hola! Inicia sesión para continuar.
           </h2>
@@ -543,12 +543,22 @@ export default function App() {
     );
   }
 
+  // --- NUEVA LÓGICA DE ORDENAMIENTO Y MENSAJES PERSONALIZADOS ---
   const todaysTasks = tasks.filter(task => task.next_due_date <= todayStr);
   const upcomingTasks = tasks.filter(task => task.next_due_date > todayStr);
 
+  const currentUserProfile = profiles.find(p => p.user_id === session?.user?.id);
+  
+  // Separar las tareas del usuario actual y las del resto de la casa
+  const myTodaysTasks = todaysTasks.filter(task => task.assigned_to === currentUserProfile?.id);
+  const othersTodaysTasks = todaysTasks.filter(task => task.assigned_to !== currentUserProfile?.id);
+  
+  const myUpcomingTasks = upcomingTasks.filter(task => task.assigned_to === currentUserProfile?.id);
+  const othersUpcomingTasks = upcomingTasks.filter(task => task.assigned_to !== currentUserProfile?.id);
+
   return (
     <div className={`min-h-screen relative font-sans antialiased ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
-      
+
       <div 
         className="fixed inset-0 z-0 opacity-[0.04] pointer-events-none bg-slate-950 bg-repeat bg-center"
         style={{ backgroundImage: "url('/fondo_login.webp')", opacity: darkMode ? 0.04 : 0.02 }}
@@ -600,7 +610,7 @@ export default function App() {
               className={`w-full flex items-center justify-center gap-2 font-semibold text-white py-3.5 rounded-xl text-sm shadow-md transition-all active:scale-95 disabled:opacity-50 ${darkMode ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-indigo-700 hover:bg-indigo-600'}`}
             >
               <Zap className="w-4 h-4" />
-              {triggerLoading ? 'Enviando secuencialmente...' : 'Disparar Notificaciones Dinámicas'}
+              {triggerLoading ? 'Enviando secuencialmente...' : 'Disparar Notificaciones Dinámicas Now'}
             </button>
           </section>
         )}
@@ -624,57 +634,68 @@ export default function App() {
             <>
               <div className="mb-8">
                 <h2 className={`text-xs font-bold tracking-wider uppercase mb-3 pl-1 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Para hoy</h2>
-                
+
                 {todaysTasks.length === 0 ? (
                   <div className={`p-6 border border-dashed rounded-2xl text-center ${darkMode ? 'bg-slate-900/60 border-slate-800/60' : 'bg-white/80 border-slate-200'}`}>
-                    <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>¡Todo listo por hoy! 🎉</p>
+                    <p className={`text-sm font-medium ${darkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>¡Toda la casa está lista por hoy! 🎉</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {todaysTasks.map((task) => (
-                      <div key={task.id} className={`p-4 rounded-2xl shadow-sm space-y-3 transition-all backdrop-blur-sm border ${darkMode ? 'bg-slate-900/90 border-slate-700/80 shadow-slate-950/20' : 'bg-white border-slate-200 shadow-slate-100'}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1.5">
-                            <h3 className={`font-semibold text-sm ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{task.title}</h3>
-                            <RenderBadge profileId={task.assigned_to} />
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            {isAdmin && (
-                              <>
-                                <button
-                                  onClick={() => handleOpenEditModal(task)}
-                                  className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100'}`}
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => setTaskToDeleteId(task.id)}
-                                  className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-rose-400 hover:bg-slate-800' : 'text-slate-400 hover:text-rose-600 hover:bg-slate-100'}`}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={() => handleCompleteTask(task)}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow-md shadow-emerald-600/20 transition-all active:scale-95 shrink-0 ml-1"
-                            >
-                              <Check className="w-3.5 h-3.5" /> Completar
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className={`flex items-center justify-between pt-2.5 border-t text-[11px] ${darkMode ? 'border-slate-800/60' : 'border-slate-100'}`}>
-                          <span className={`${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
-                            Cada <span className={`${darkMode ? 'text-indigo-400/80 font-medium' : 'text-indigo-600 font-medium'}`}>{task.interval_days} días</span>
-                          </span>
-                          <span className={`${darkMode ? 'text-slate-300 font-medium' : 'text-slate-700 font-medium'}`}>
-                            Hoy
-                          </span>
-                        </div>
+                  <div className="space-y-4">
+                    {/* MENSAJE DE ÉXITO PERSONALIZADO */}
+                    {currentUserProfile && myTodaysTasks.length === 0 && othersTodaysTasks.length > 0 && (
+                      <div className={`p-4 rounded-2xl text-center border ${darkMode ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'}`}>
+                        <p className={`text-sm font-semibold ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>¡Terminaste tus tareas de hoy! 🎉</p>
+                        <p className={`text-xs mt-1 ${darkMode ? 'text-emerald-400/70' : 'text-emerald-600/80'}`}>Aún quedan actividades del hogar pendientes.</p>
                       </div>
-                    ))}
+                    )}
+
+                    {/* LISTA ORDENADA (Mis tareas primero, luego el resto) */}
+                    <div className="space-y-3">
+                      {[...myTodaysTasks, ...othersTodaysTasks].map((task) => (
+                        <div key={task.id} className={`p-4 rounded-2xl shadow-sm space-y-3 transition-all backdrop-blur-sm border ${darkMode ? 'bg-slate-900/90 border-slate-700/80 shadow-slate-950/20' : 'bg-white border-slate-200 shadow-slate-100'}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1.5">
+                              <h3 className={`font-semibold text-sm ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{task.title}</h3>
+                              <RenderBadge profileId={task.assigned_to} />
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    onClick={() => handleOpenEditModal(task)}
+                                    className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100'}`}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => setTaskToDeleteId(task.id)}
+                                    className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:text-rose-400 hover:bg-slate-800' : 'text-slate-400 hover:text-rose-600 hover:bg-slate-100'}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleCompleteTask(task)}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow-md shadow-emerald-600/20 transition-all active:scale-95 shrink-0 ml-1"
+                              >
+                                <Check className="w-3.5 h-3.5" /> Completar
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className={`flex items-center justify-between pt-2.5 border-t text-[11px] ${darkMode ? 'border-slate-800/60' : 'border-slate-100'}`}>
+                            <span className={`${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                              Cada <span className={`${darkMode ? 'text-indigo-400/80 font-medium' : 'text-indigo-600 font-medium'}`}>{task.interval_days} días</span>
+                            </span>
+                            <span className={`${darkMode ? 'text-slate-300 font-medium' : 'text-slate-700 font-medium'}`}>
+                              Hoy
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -683,7 +704,8 @@ export default function App() {
                 <div>
                   <h2 className={`text-xs font-bold tracking-wider uppercase mb-3 pl-1 ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>Próximas</h2>
                   <div className="space-y-3">
-                    {upcomingTasks.map((task) => (
+                    {/* Lista ordenada para próximas tareas (las mías primero) */}
+                    {[...myUpcomingTasks, ...othersUpcomingTasks].map((task) => (
                       <div key={task.id} className={`p-4 rounded-2xl shadow-sm space-y-3 transition-all backdrop-blur-sm border opacity-80 hover:opacity-100 ${darkMode ? 'bg-slate-900/60 border-slate-800/60 shadow-slate-950/20' : 'bg-white border-slate-200/80 shadow-slate-100'}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1.5">
@@ -777,7 +799,7 @@ export default function App() {
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <form onSubmit={handleSaveTask} className={`p-6 rounded-3xl shadow-2xl w-full max-w-sm space-y-4 relative animate-in fade-in zoom-in-95 duration-200 z-50 border ${darkMode ? 'bg-slate-900 border-slate-700/50 backdrop-blur-md shadow-slate-950/30' : 'bg-white border-slate-100 shadow-slate-200'}`}>
-              
+
               <button 
                 type="button" 
                 onClick={() => setShowForm(false)}
@@ -792,7 +814,7 @@ export default function App() {
                   {editingTask ? 'Modifica los datos de la actividad' : 'Completa todos los campos obligatorios'}
                 </p>
               </div>
-              
+
               <div>
                 <label className={`block text-xs font-medium mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Nombre de la tarea *</label>
                 <input

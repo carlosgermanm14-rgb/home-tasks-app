@@ -95,7 +95,7 @@ export default async function handler(req, res) {
         const taskListStr = userTasks.map((t) => t.title).join(', ');
         body = `Te quedan estas tareas: ${taskListStr}.`;
       } else {
-        body = 'Felicidades ya terminaste, te amo. 🎉';
+        body = 'Felicidades ya terminaste 🎉 Te amo ❤️';
       }
 
       if (!body) continue;
